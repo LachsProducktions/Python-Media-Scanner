@@ -199,11 +199,12 @@ class MediaScannerApp:
             self.last_scan["items"] = items
 
             # Filter category and display results
-            filtered = [i for i in items if i["category"] == category]
-            self.display_results(category, filtered)
-
-            self.status_var.set(f"Scan complete ({len(filtered)} {category} items found)")
-            self.progress["value"] = 100
+            filtered = [i for i in items if i["Category"] == category]
+            
+            # Use after to ensure display happens in main thread
+            self.master.after(0, lambda: self.display_results(category, filtered))
+            self.master.after(0, lambda: self.status_var.set(f"Scan complete ({len(filtered)} {category} items found)"))
+            self.master.after(0, lambda: setattr(self.progress, "value", 100))
 
         threading.Thread(target=do_scan, daemon=True).start()
 
@@ -220,7 +221,7 @@ class MediaScannerApp:
             return
 
         sorted_items = self.scanner.sort_items(self.last_scan["items"], by=sort_by)
-        filtered = [i for i in sorted_items if i["category"] == category]
+        filtered = [i for i in sorted_items if i["Category"] == category]
         self.display_results(category, filtered)
         self.status_var.set(f"Sorted by {sort_by}")
 
@@ -277,7 +278,7 @@ class MediaScannerApp:
             messagebox.showinfo("No data", "Please scan first.")
             return
         # filter items for category
-        items = [it for it in self.last_scan["items"] if it.get("category","Other")==category]
+        items = [it for it in self.last_scan["items"] if it.get("Category","Other")==category]
         if not items:
             messagebox.showinfo("Empty", f"No items in {category}")
             return
