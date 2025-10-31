@@ -111,10 +111,15 @@ class Scanner:
                     category = self._categorize_by_ext(ext)
                     duration = None
                     duration_display = "N/A"
-                    # Only compute duration for known media containers (video/audio)
+
                     if ext in VIDEO_EXTS or ext in AUDIO_EXTS:
-                        duration = get_duration(full)
-                        duration_display = self._fmt_duration(duration)
+                        try:
+                            duration = get_duration(full)
+                            duration_display = self._fmt_duration(duration)
+                        except Exception:
+                            duration = None
+                            duration_display = "Error"
+
                     size_display = sizeof_fmt(size)
                     hval = None
                     if self.include_hash:
@@ -122,6 +127,7 @@ class Scanner:
                             hval = sha256_of_file(full)
                         except Exception:
                             hval = None
+
                     item = {
                         "name": fname,
                         "path": str(full),
@@ -134,13 +140,35 @@ class Scanner:
                     }
                     if self.include_hash:
                         item["sha256"] = hval
+
                     items.append(item)
                     count += 1
                     if update_callback and (count % 50 == 0):
                         update_callback(count, str(full))
-                except Exception:
+                except Exception as e:
+                    # log errors instead of silently skipping
+                    print(f"Error scanning {full}: {e}")
                     continue
         return items
+
+    def _categorize_by_ext(self, ext):
+        if ext in VIDEO_EXTS:
+            return "Videos"
+        if ext in AUDIO_EXTS:
+            return "Musik"
+        if ext in IMAGE_EXTS:
+            return "Fotos"
+        return "Other"
+
+    def _fmt_duration(self, seconds):
+        if not seconds:
+            return "N/A"
+        minutes, sec = divmod(int(seconds), 60)
+        hours, minutes = divmod(minutes, 60)
+        if hours:
+            return f"{hours:d}:{minutes:02d}:{sec:02d}"
+        return f"{minutes:02d}:{sec:02d}"
+
 
     def _categorize_by_ext(self, ext):
         if ext in VIDEO_EXTS:
