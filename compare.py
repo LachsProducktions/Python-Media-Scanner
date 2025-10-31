@@ -45,7 +45,7 @@ class Compare:
 
     def _load_scanfile(self, path):
         p = Path(path)
-        if p.suffix.lower() == ".json":
+        if p.suffix.lower() == ".txt" or p.suffix.lower() == ".json":
             with open(p,"r",encoding="utf-8") as f:
                 data = json.load(f)
             # data expected to be a list of items

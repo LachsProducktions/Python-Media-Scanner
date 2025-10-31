@@ -6,9 +6,9 @@ Saves settings.json with defaults if not present.
 import json
 
 DEFAULTS = {
-    "tab_order": ["Videos","Musik","Fotos","Other"],
+    "tab_order": ["Videos","Music","Photos","Other"],
     "include_hash": False,
-    "export_format": "json",
+    "export_format": "txt",
     "last_scan_path": "",
     "compare_mode": "auto"
 }

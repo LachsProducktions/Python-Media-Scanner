@@ -132,17 +132,17 @@ class Scanner:
                 hval = sha256_of_file(full) if self.include_hash else None
 
                 item = {
-                    "name": full.name,
-                    "path": str(full),
-                    "size": size,
-                    "size_display": size_display,
-                    "ext": ext,
-                    "category": category,
-                    "duration": duration,
-                    "duration_display": duration_display,
+                    "Name": full.name,
+                    "Path": str(full),
+                    "Size": size,
+                    "Size_Display": size_display,
+                    "Ext": ext,
+                    "Category": category,
+                    "Duration": duration,
+                    "Duration_Display": duration_display,
                 }
                 if self.include_hash:
-                    item["sha256"] = hval
+                    item["SHA256"] = hval
 
                 items.append(item)
             except Exception as e:
@@ -154,22 +154,22 @@ class Scanner:
 
         return items
     
-    def sort_items(self, items, by="name"):
+    def sort_items(self, items, by="Name"):
         """
         Sorts scanned items by name, size, duration, or extension.
         Ties are broken alphabetically by name.
         """
         key_funcs = {
-            "name": lambda x: (x["name"].lower(),),
-            "size": lambda x: (x["size"], x["name"].lower()),
-            "duration": lambda x: (
-                x["duration"] if x["duration"] is not None else float("inf"),
-                x["name"].lower(),
+            "Name": lambda x: (x["Name"].lower(),),
+            "Size": lambda x: (x["Size"], x["Name"].lower()),
+            "Duration": lambda x: (
+                x["Duration"] if x["Duration"] is not None else float("inf"),
+                x["Name"].lower(),
             ),
-            "ext": lambda x: (x["ext"], x["name"].lower()),
+            "Ext": lambda x: (x["Ext"], x["Name"].lower()),
         }
 
-        key_func = key_funcs.get(by, key_funcs["name"])
+        key_func = key_funcs.get(by, key_funcs["Name"])
         return sorted(items, key=key_func)
 
 
@@ -178,9 +178,9 @@ class Scanner:
         if ext in VIDEO_EXTS:
             return "Videos"
         if ext in AUDIO_EXTS:
-            return "Musik"
+            return "Music"
         if ext in IMAGE_EXTS:
-            return "Fotos"
+            return "Photos"
         return "Other"
 
     def _fmt_duration(self, seconds):
@@ -197,9 +197,9 @@ class Scanner:
         if ext in VIDEO_EXTS:
             return "Videos"
         if ext in AUDIO_EXTS:
-            return "Musik"
+            return "Music"
         if ext in IMAGE_EXTS:
-            return "Fotos"
+            return "Photos"
         return "Other"
 
 # If run directly, quick scan demo

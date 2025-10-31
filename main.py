@@ -41,7 +41,7 @@ class MediaScannerApp:
 
         # Create tabs according to settings order
         self.tabs = {}
-        for name in self.settings_data.get("tab_order", ["Videos","Musik","Fotos","Other"]):
+        for name in self.settings_data.get("tab_order", ["Videos","Music","Photos","Other"]):
             frame = ttk.Frame(self.notebook)
             self.notebook.add(frame, text=name)
             self.tabs[name] = frame
@@ -85,17 +85,17 @@ class MediaScannerApp:
         ttk.Button(frm_top, text="Clear", command=lambda n=name: self.clear_tree(n)).pack(side="left", padx=6)
         # Sorting dropdown
         ttk.Label(frm_top, text="Sort by:").pack(side="left", padx=(20, 4))
-        sort_choice = ttk.Combobox(frm_top, values=["name", "size", "duration", "ext"], width=10, state="readonly")
-        sort_choice.set("name")
+        sort_choice = ttk.Combobox(frm_top, values=["Name", "Size", "Duration", "Ext"], width=10, state="readonly")
+        sort_choice.set("Name")
         sort_choice.pack(side="left")
 
         ttk.Button(frm_top, text="Apply Sort", command=lambda n=name, c=sort_choice: self.sort_tree(n, c.get())).pack(side="left", padx=6)
 
-        cols = ("name","path","size","duration","type")
+        cols = ("Name","Path","Size","Duration","Type")
         tree = ttk.Treeview(parent, columns=cols, show="headings")
         for c in cols:
             tree.heading(c, text=c.capitalize())
-            tree.column(c, width=200 if c in ("name","path") else 90, anchor="w")
+            tree.column(c, width=200 if c in ("Name","Path") else 90, anchor="w")
         vsb = ttk.Scrollbar(parent, orient="vertical", command=tree.yview)
         tree.configure(yscroll=vsb.set)
         vsb.pack(side="right", fill="y")
@@ -129,7 +129,7 @@ class MediaScannerApp:
         # Tab order controls (simple up/down listbox)
         ttk.Label(frm, text="Tab order:").grid(row=0, column=0, sticky="w")
         self.lb_order = tk.Listbox(frm, height=6)
-        for t in self.settings_data.get("tab_order", ["Videos","Musik","Fotos","Other"]):
+        for t in self.settings_data.get("tab_order", ["Videos","Music","Photos","Other"]):
             self.lb_order.insert("end", t)
         self.lb_order.grid(row=1, column=0, sticky="nsew", padx=6, pady=6)
         btn_up = ttk.Button(frm, text="Up", command=self.move_tab_up)
@@ -240,11 +240,11 @@ class MediaScannerApp:
                 "",
                 "end",
                 values=(
-                    item["name"],
-                    item["path"],
-                    item["size_display"],
-                    item["duration_display"],
-                    item["ext"],
+                    item["Name"],
+                    item["Path"],
+                    item["Size_Display"],
+                    item["Duration_Display"],
+                    item["Ext"],
                 ),
             )
 
@@ -274,7 +274,7 @@ class MediaScannerApp:
 
     def export_category(self, category):
         if not self.last_scan or not self.last_scan.get("items"):
-            messagebox.showinfo("No data", "Bitte zuerst scannen.")
+            messagebox.showinfo("No data", "Please scan first.")
             return
         # filter items for category
         items = [it for it in self.last_scan["items"] if it.get("category","Other")==category]
@@ -356,7 +356,7 @@ class MediaScannerApp:
 
     def export_compare(self):
         if not self.last_compare:
-            messagebox.showinfo("No compare", "Führe zuerst einen Vergleich aus.")
+            messagebox.showinfo("No compare", "Please perform a compare first.")
             return
         path = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV","*.csv"),("TXT","*.txt")])
         if not path: return
