@@ -18,7 +18,9 @@ def _index_items(items):
     # create dict keyed by relative name or path basename; using basename to catch duplicates on different folders
     idx = {}
     for it in items:
-        key = it["name"]  # using name for comparison; could be improved using relative path
+        # items may come from scanner (capitalized keys) or from _load_scanfile (lowercase keys)
+        name = it.get("Name") or it.get("name")
+        key = name
         idx.setdefault(key, []).append(it)
     return idx
 
@@ -26,17 +28,37 @@ class Compare:
     def __init__(self):
         pass
 
-    def compare_folders(self, folder_a, folder_b, include_hash=False):
+    def compare_folders(self, folder_a, folder_b, include_hash=False, update_callback=None):
         s = Scanner(include_hash=include_hash)
-        left = s.scan_folder(folder_a, update_callback=None)
-        right = s.scan_folder(folder_b, update_callback=None)
-        return self._compare_lists(left, right)
+        if update_callback:
+            update_callback(0, f"Scanning folder: {folder_a}")
+        left = s.scan_folder(folder_a, lambda p,f: update_callback(p//2, f) if update_callback else None)
 
-    def compare_scanfile_vs_folder(self, scanfile, folder, include_hash=False):
+        if update_callback:
+            update_callback(50, f"Scanning folder: {folder_b}")
+        right = s.scan_folder(folder_b, lambda p,f: update_callback(50 + p//2, f) if update_callback else None)
+
+        if update_callback:
+            update_callback(100, "Comparing results...")
+
+        results = self._compare_lists(left, right)
+        return {"left": left, "right": right, "results": results}
+
+    def compare_scanfile_vs_folder(self, scanfile, folder, include_hash=False, update_callback=None):
+        if update_callback:
+            update_callback(0, f"Loading scan file: {scanfile}")
         left = self._load_scanfile(scanfile)
+
+        if update_callback:
+            update_callback(20, f"Scanning folder: {folder}")
         s = Scanner(include_hash=include_hash)
-        right = s.scan_folder(folder, update_callback=None)
-        return self._compare_lists(left, right)
+        right = s.scan_folder(folder, lambda p,f: update_callback(20 + int(p*0.8), f) if update_callback else None)
+
+        if update_callback:
+            update_callback(100, "Comparing results...")
+
+        results = self._compare_lists(left, right)
+        return {"left": left, "right": right, "results": results}
 
     def compare_scanfiles(self, file_a, file_b):
         a = self._load_scanfile(file_a)

@@ -110,6 +110,54 @@ class MediaScannerApp:
         ttk.Button(frm, text="Compare two saved scans", command=self.compare_file_vs_file).pack(side="left", padx=6)
         ttk.Button(frm, text="Export last compare", command=self.export_compare).pack(side="right", padx=6)
 
+        # Two side-by-side trees for left/right folder contents + a summary tree below
+        split = ttk.Frame(parent)
+        split.pack(fill="both", expand=False, padx=6, pady=(6,0))
+
+        # Left pane
+        left_pane = ttk.Frame(split)
+        left_pane.pack(side="left", fill="both", expand=True)
+        ttk.Label(left_pane, text="Left").pack(anchor="w")
+        lfrm = ttk.Frame(left_pane)
+        lfrm.pack(fill="x")
+        ttk.Label(lfrm, text="Sort by:").pack(side="left")
+        self.left_sort_choice = ttk.Combobox(lfrm, values=["Name","Size","Ext"], width=10, state="readonly")
+        self.left_sort_choice.set("Name")
+        self.left_sort_choice.pack(side="left", padx=4)
+        ttk.Button(lfrm, text="Apply", command=lambda: self.sort_compare_tree("left", self.left_sort_choice.get())).pack(side="left", padx=4)
+
+        cols_lr = ("Name","Size","Ext")
+        self.compare_tree_left = ttk.Treeview(left_pane, columns=cols_lr, show="headings")
+        for c in cols_lr:
+            self.compare_tree_left.heading(c, text=c)
+            self.compare_tree_left.column(c, width=200 if c=="Name" else 90, anchor="w")
+        vsb_l = ttk.Scrollbar(left_pane, orient="vertical", command=self.compare_tree_left.yview)
+        self.compare_tree_left.configure(yscroll=vsb_l.set)
+        vsb_l.pack(side="right", fill="y")
+        self.compare_tree_left.pack(fill="both", expand=True)
+
+        # Right pane
+        right_pane = ttk.Frame(split)
+        right_pane.pack(side="left", fill="both", expand=True)
+        ttk.Label(right_pane, text="Right").pack(anchor="w")
+        rfrm = ttk.Frame(right_pane)
+        rfrm.pack(fill="x")
+        ttk.Label(rfrm, text="Sort by:").pack(side="left")
+        self.right_sort_choice = ttk.Combobox(rfrm, values=["Name","Size","Ext"], width=10, state="readonly")
+        self.right_sort_choice.set("Name")
+        self.right_sort_choice.pack(side="left", padx=4)
+        ttk.Button(rfrm, text="Apply", command=lambda: self.sort_compare_tree("right", self.right_sort_choice.get())).pack(side="left", padx=4)
+
+        self.compare_tree_right = ttk.Treeview(right_pane, columns=cols_lr, show="headings")
+        for c in cols_lr:
+            self.compare_tree_right.heading(c, text=c)
+            self.compare_tree_right.column(c, width=200 if c=="Name" else 90, anchor="w")
+        vsb_r = ttk.Scrollbar(right_pane, orient="vertical", command=self.compare_tree_right.yview)
+        self.compare_tree_right.configure(yscroll=vsb_r.set)
+        vsb_r.pack(side="right", fill="y")
+        self.compare_tree_right.pack(fill="both", expand=True)
+
+        # Summary tree (matches/only_left/only_right)
         cols = ("file","category","status","left_size","right_size")
         self.compare_tree = ttk.Treeview(parent, columns=cols, show="headings")
         for c in cols:
@@ -118,9 +166,16 @@ class MediaScannerApp:
         vsb = ttk.Scrollbar(parent, orient="vertical", command=self.compare_tree.yview)
         self.compare_tree.configure(yscroll=vsb.set)
         vsb.pack(side="right", fill="y")
-        self.compare_tree.pack(fill="both", expand=True, padx=6, pady=(0,6))
+        self.compare_tree.pack(fill="both", expand=True, padx=6, pady=(6,6))
+
+        # tags for highlighting
+        self.compare_tree_left.tag_configure("match", background="#d4f7d4")
+        self.compare_tree_right.tag_configure("match", background="#d4f7d4")
+        self.compare_tree.tag_configure("both_same", background="#d4f7d4")
 
         self.last_compare = []
+        self.last_compare_left = []
+        self.last_compare_right = []
 
     def _build_settings_tab(self, parent):
         frm = ttk.Frame(parent)
@@ -305,15 +360,24 @@ class MediaScannerApp:
         b = filedialog.askdirectory(title="Folder B", initialdir=os.path.expanduser("~"))
         if not b: return
         inc_hash = bool(self.hash_var.get())
-        self.status_var.set("Comparing folders (this can take a while)...")
-        self.progress.config(mode="indeterminate")
-        self.progress.start(10)
+        self.status_var.set("Starting comparison...")
+        self.progress.config(mode="determinate")
+        self.progress["value"] = 0
+        self.master.update_idletasks()
+
+        def update_progress(percent, current_file):
+            self.master.after(0, lambda: self.progress.configure(value=percent))
+            self.master.after(0, lambda: self.status_var.set(f"Comparing: {os.path.basename(current_file)} ({percent}%)"))
+            self.master.update_idletasks()
+
         def do():
-            res = self.compare.compare_folders(a,b, include_hash=inc_hash)
-            self.last_compare = res
-            self.populate_compare(res)
-            self.progress.stop()
-            self.status_var.set("Compare complete")
+            data = self.compare.compare_folders(a, b, include_hash=inc_hash, update_callback=update_progress)
+            # data is dict {left, right, results}
+            self.last_compare = data.get("results", [])
+            self.last_compare_left = data.get("left", [])
+            self.last_compare_right = data.get("right", [])
+            self.master.after(0, lambda: self.populate_compare(data))
+            self.master.after(0, lambda: self.status_var.set("Compare complete"))
         threading.Thread(target=do, daemon=True).start()
 
     def compare_folder_vs_file(self):
@@ -322,14 +386,23 @@ class MediaScannerApp:
         folder = filedialog.askdirectory(title="Folder to compare", initialdir=os.path.expanduser("~"))
         if not folder: return
         inc_hash = bool(self.hash_var.get())
-        self.status_var.set("Comparing saved scan vs folder...")
-        self.progress.config(mode="indeterminate"); self.progress.start(10)
+        self.status_var.set("Starting comparison...")
+        self.progress.config(mode="determinate")
+        self.progress["value"] = 0
+        self.master.update_idletasks()
+
+        def update_progress(percent, current_file):
+            self.master.after(0, lambda: self.progress.configure(value=percent))
+            self.master.after(0, lambda: self.status_var.set(f"Comparing: {os.path.basename(current_file)} ({percent}%)"))
+            self.master.update_idletasks()
+
         def do():
-            res = self.compare.compare_scanfile_vs_folder(file, folder, include_hash=inc_hash)
-            self.last_compare = res
-            self.populate_compare(res)
-            self.progress.stop()
-            self.status_var.set("Compare complete")
+            data = self.compare.compare_scanfile_vs_folder(file, folder, include_hash=inc_hash, update_callback=update_progress)
+            self.last_compare = data.get("results", [])
+            self.last_compare_left = data.get("left", [])
+            self.last_compare_right = data.get("right", [])
+            self.master.after(0, lambda: self.populate_compare(data))
+            self.master.after(0, lambda: self.status_var.set("Compare complete"))
         threading.Thread(target=do, daemon=True).start()
 
     def compare_file_vs_file(self):
@@ -348,12 +421,105 @@ class MediaScannerApp:
         threading.Thread(target=do, daemon=True).start()
 
     def populate_compare(self, results):
+        # results may be either a list (old format) or a dict {left,right,results}
         def task():
+            # clear summary
             for iid in self.compare_tree.get_children():
                 self.compare_tree.delete(iid)
-            for r in results:
-                self.compare_tree.insert("", "end", values=(r.get("file"), r.get("category"), r.get("status"), r.get("left_size",""), r.get("right_size","")))
+
+            left_items = []
+            right_items = []
+            summary = []
+
+            if isinstance(results, dict):
+                left_items = results.get("left", [])
+                right_items = results.get("right", [])
+                summary = results.get("results", [])
+            else:
+                summary = results
+
+            # helper to read fields with scanner/file compatibility
+            def get_name(it):
+                return (it.get("Name") or it.get("name") or "")
+            def get_size(it):
+                return it.get("Size") if it.get("Size") is not None else it.get("size")
+            def get_size_display(it):
+                return it.get("Size_Display") or it.get("size_display") or str(get_size(it) or "")
+            def get_ext(it):
+                return (it.get("Ext") or it.get("ext") or "").lower()
+
+            # build index of right items for matching
+            right_set = set((get_name(it).lower(), get_size(it), get_ext(it)) for it in right_items)
+            left_set = set((get_name(it).lower(), get_size(it), get_ext(it)) for it in left_items)
+
+            # populate left tree
+            for iid in self.compare_tree_left.get_children():
+                self.compare_tree_left.delete(iid)
+            for it in left_items:
+                name = get_name(it)
+                size_disp = get_size_display(it)
+                ext = get_ext(it)
+                tag = ()
+                key = (name.lower(), get_size(it), ext)
+                tags = ("match",) if key in right_set else ()
+                self.compare_tree_left.insert("", "end", values=(name, size_disp, ext), tags=tags)
+
+            # populate right tree
+            for iid in self.compare_tree_right.get_children():
+                self.compare_tree_right.delete(iid)
+            for it in right_items:
+                name = get_name(it)
+                size_disp = get_size_display(it)
+                ext = get_ext(it)
+                key = (name.lower(), get_size(it), ext)
+                tags = ("match",) if key in left_set else ()
+                self.compare_tree_right.insert("", "end", values=(name, size_disp, ext), tags=tags)
+
+            # populate summary tree
+            for r in summary:
+                tag = ()
+                if r.get("status") == "both_same":
+                    tag = ("both_same",)
+                self.compare_tree.insert("", "end", values=(r.get("file"), r.get("category"), r.get("status"), r.get("left_size",""), r.get("right_size","")), tags=tag)
+
         self.master.after(10, task)
+
+    def sort_compare_tree(self, side, by):
+        """
+        Sort left/right compare lists by Name/Size/Ext.
+        """
+        # choose the list
+        if side == "left":
+            items = list(self.last_compare_left)
+            tree = self.compare_tree_left
+        else:
+            items = list(self.last_compare_right)
+            tree = self.compare_tree_right
+
+        # helper field getter
+        def get_name(it):
+            return (it.get("Name") or it.get("name") or "").lower()
+        def get_size(it):
+            return it.get("Size") if it.get("Size") is not None else it.get("size") or 0
+        def get_ext(it):
+            return (it.get("Ext") or it.get("ext") or "").lower()
+
+        if by == "Name":
+            items.sort(key=lambda x: get_name(x))
+        elif by == "Size":
+            items.sort(key=lambda x: (get_size(x) if get_size(x) is not None else float('inf'), get_name(x)))
+        elif by == "Ext":
+            items.sort(key=lambda x: (get_ext(x), get_name(x)))
+
+        # update the stored list and refresh display
+        if side == "left":
+            self.last_compare_left = items
+        else:
+            self.last_compare_right = items
+
+        # repopulate using populate_compare with current data
+        data = {"left": self.last_compare_left, "right": self.last_compare_right, "results": self.last_compare}
+        self.populate_compare(data)
 
     def export_compare(self):
         if not self.last_compare:
