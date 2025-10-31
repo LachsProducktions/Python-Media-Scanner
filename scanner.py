@@ -97,59 +97,82 @@ class Scanner:
     def scan_folder(self, root_path, update_callback=None):
         """
         Scans folder recursively and returns list of item dicts.
-        update_callback(optional) called with (count, current_path) periodically.
+        Calls update_callback(progress, current_file) with progress from 0–100.
         """
         items = []
         root = Path(root_path)
-        count = 0
-        for dirpath, dirs, files in os.walk(root):
+
+        # Collect all files first for total count
+        all_files = []
+        for dirpath, _, files in os.walk(root):
             for fname in files:
-                full = Path(dirpath) / fname
-                try:
-                    ext = full.suffix.lower()
-                    size = full.stat().st_size
-                    category = self._categorize_by_ext(ext)
-                    duration = None
-                    duration_display = "N/A"
+                all_files.append(Path(dirpath) / fname)
 
-                    if ext in VIDEO_EXTS or ext in AUDIO_EXTS:
-                        try:
-                            duration = get_duration(full)
-                            duration_display = self._fmt_duration(duration)
-                        except Exception:
-                            duration = None
-                            duration_display = "Error"
+        total = len(all_files)
+        if total == 0:
+            return []
 
-                    size_display = sizeof_fmt(size)
-                    hval = None
-                    if self.include_hash:
-                        try:
-                            hval = sha256_of_file(full)
-                        except Exception:
-                            hval = None
+        for count, full in enumerate(all_files, start=1):
+            try:
+                ext = full.suffix.lower()
+                size = full.stat().st_size
+                category = self._categorize_by_ext(ext)
+                duration = None
+                duration_display = "N/A"
 
-                    item = {
-                        "name": fname,
-                        "path": str(full),
-                        "size": size,
-                        "size_display": size_display,
-                        "ext": ext,
-                        "category": category,
-                        "duration": duration,
-                        "duration_display": duration_display,
-                    }
-                    if self.include_hash:
-                        item["sha256"] = hval
+                if ext in VIDEO_EXTS or ext in AUDIO_EXTS:
+                    try:
+                        duration = get_duration(full)
+                        duration_display = self._fmt_duration(duration)
+                    except Exception:
+                        duration = None
+                        duration_display = "Error"
 
-                    items.append(item)
-                    count += 1
-                    if update_callback and (count % 50 == 0):
-                        update_callback(count, str(full))
-                except Exception as e:
-                    # log errors instead of silently skipping
-                    print(f"Error scanning {full}: {e}")
-                    continue
+                size_display = sizeof_fmt(size)
+                hval = sha256_of_file(full) if self.include_hash else None
+
+                item = {
+                    "name": full.name,
+                    "path": str(full),
+                    "size": size,
+                    "size_display": size_display,
+                    "ext": ext,
+                    "category": category,
+                    "duration": duration,
+                    "duration_display": duration_display,
+                }
+                if self.include_hash:
+                    item["sha256"] = hval
+
+                items.append(item)
+            except Exception as e:
+                print(f"Error scanning {full}: {e}")
+            finally:
+                if update_callback:
+                    progress = int((count / total) * 100)
+                    update_callback(progress, str(full))
+
         return items
+    
+    def sort_items(self, items, by="name"):
+        """
+        Sorts scanned items by name, size, duration, or extension.
+        Ties are broken alphabetically by name.
+        """
+        key_funcs = {
+            "name": lambda x: (x["name"].lower(),),
+            "size": lambda x: (x["size"], x["name"].lower()),
+            "duration": lambda x: (
+                x["duration"] if x["duration"] is not None else float("inf"),
+                x["name"].lower(),
+            ),
+            "ext": lambda x: (x["ext"], x["name"].lower()),
+        }
+
+        key_func = key_funcs.get(by, key_funcs["name"])
+        return sorted(items, key=key_func)
+
+
 
     def _categorize_by_ext(self, ext):
         if ext in VIDEO_EXTS:

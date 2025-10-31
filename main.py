@@ -83,6 +83,13 @@ class MediaScannerApp:
         ttk.Button(frm_top, text="Scan Folder", command=lambda n=name: self.start_scan(n)).pack(side="left", padx=6)
         ttk.Button(frm_top, text="Export (json/txt)", command=lambda n=name: self.export_category(n)).pack(side="left", padx=6)
         ttk.Button(frm_top, text="Clear", command=lambda n=name: self.clear_tree(n)).pack(side="left", padx=6)
+        # Sorting dropdown
+        ttk.Label(frm_top, text="Sort by:").pack(side="left", padx=(20, 4))
+        sort_choice = ttk.Combobox(frm_top, values=["name", "size", "duration", "ext"], width=10, state="readonly")
+        sort_choice.set("name")
+        sort_choice.pack(side="left")
+
+        ttk.Button(frm_top, text="Apply Sort", command=lambda n=name, c=sort_choice: self.sort_tree(n, c.get())).pack(side="left", padx=6)
 
         cols = ("name","path","size","duration","type")
         tree = ttk.Treeview(parent, columns=cols, show="headings")
@@ -177,33 +184,72 @@ class MediaScannerApp:
         self.settings.save(self.settings_data)
         messagebox.showinfo("Saved", "Settings saved. Restart to apply tab ordering visually.")
 
-    def start_scan(self, category_hint):
-        # Ask folder
-        folder = filedialog.askdirectory(initialdir=self.settings_data.get("last_scan_path", os.path.expanduser("~")))
+    def start_scan(self, category):
+        folder = filedialog.askdirectory(title=f"Select {category} folder")
         if not folder:
             return
-        # Start scanner thread
-        include_hash = bool(self.hash_var.get())
-        export_fmt = self.export_var.get()
-        self.status_var.set(f"Scanning {folder} ...")
-        self.progress.config(mode="indeterminate")
-        self.progress.start(10)
 
-        def scan_thread():
-            s = Scanner(include_hash=include_hash)
-            items = s.scan_folder(folder, update_callback=None)  # blocking
-            # store last scan
-            self.last_scan = {"items": items, "root": folder}
-            # populate trees by category
-            self.master_event_populate(items)
-            self.progress.stop()
-            self.progress.config(mode="determinate", value=0)
-            self.status_var.set(f"Scan complete: {len(items)} files found")
-            # save last path
-            self.settings_data["last_scan_path"] = folder
-            self.settings.save(self.settings_data)
+        self.status_var.set(f"Scanning {folder}...")
+        self.progress["value"] = 0
+        self.master.update_idletasks()
 
-        threading.Thread(target=scan_thread, daemon=True).start()
+        def do_scan():
+            self.scanner = Scanner(include_hash=False)
+            items = self.scanner.scan_folder(folder, update_callback=self.on_scan_progress)
+            self.last_scan["items"] = items
+
+            # Filter category and display results
+            filtered = [i for i in items if i["category"] == category]
+            self.display_results(category, filtered)
+
+            self.status_var.set(f"Scan complete ({len(filtered)} {category} items found)")
+            self.progress["value"] = 100
+
+        threading.Thread(target=do_scan, daemon=True).start()
+
+
+    def on_scan_progress(self, percent, current_file):
+        """Callback for Scanner progress updates."""
+        self.progress["value"] = percent
+        self.status_var.set(f"Scanning: {os.path.basename(current_file)} ({percent}%)")
+        self.master.update_idletasks()
+
+    def sort_tree(self, category, sort_by):
+        if not self.last_scan["items"]:
+            messagebox.showinfo("No Data", "Please scan a folder first.")
+            return
+
+        sorted_items = self.scanner.sort_items(self.last_scan["items"], by=sort_by)
+        filtered = [i for i in sorted_items if i["category"] == category]
+        self.display_results(category, filtered)
+        self.status_var.set(f"Sorted by {sort_by}")
+
+    def display_results(self, category, items):
+        """Populate the Treeview in the given category tab with the provided items."""
+        tree = self.trees.get(category)
+        if not tree:
+            return
+
+        # Clear previous contents
+        for row in tree.get_children():
+            tree.delete(row)
+
+        # Insert new rows
+        for item in items:
+            tree.insert(
+                "",
+                "end",
+                values=(
+                    item["name"],
+                    item["path"],
+                    item["size_display"],
+                    item["duration_display"],
+                    item["ext"],
+                ),
+            )
+
+
+
 
     def master_event_populate(self, items):
         # Run in main thread via after
