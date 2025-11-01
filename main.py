@@ -55,6 +55,7 @@ class MediaScannerApp:
 
         # Create UI for media tabs
         self.trees = {}
+        self.search_vars = {}  # Store search StringVars
         for cat, frame in self.tabs.items():
             if cat in ("Compare","Settings"):
                 continue
@@ -79,10 +80,26 @@ class MediaScannerApp:
     def _build_media_tab(self, name, parent):
         frm_top = ttk.Frame(parent)
         frm_top.pack(fill="x", padx=6, pady=6)
-        ttk.Label(frm_top, text=f"{name}").pack(side="left")
-        ttk.Button(frm_top, text="Scan Folder", command=lambda n=name: self.start_scan(n)).pack(side="left", padx=6)
-        ttk.Button(frm_top, text="Export (json/txt)", command=lambda n=name: self.export_category(n)).pack(side="left", padx=6)
-        ttk.Button(frm_top, text="Clear", command=lambda n=name: self.clear_tree(n)).pack(side="left", padx=6)
+        
+        # Left side controls
+        left_frm = ttk.Frame(frm_top)
+        left_frm.pack(side="left", fill="x")
+        ttk.Label(left_frm, text=f"{name}").pack(side="left")
+        self.scan_button = ttk.Button(left_frm, text="Scan Folder", command=lambda n=name: self.start_scan(n))
+        self.scan_button.pack(side="left", padx=6)
+        self.cancel_button = ttk.Button(left_frm, text="Cancel Scan", command=self.cancel_scan, state="disabled")
+        self.cancel_button.pack(side="left", padx=6)
+        ttk.Button(left_frm, text="Export (json/txt)", command=lambda n=name: self.export_category(n)).pack(side="left", padx=6)
+        ttk.Button(left_frm, text="Clear", command=lambda n=name: self.clear_tree(n)).pack(side="left", padx=6)
+        
+        # Search bar
+        search_frm = ttk.Frame(frm_top)
+        search_frm.pack(side="right", fill="x")
+        ttk.Label(search_frm, text="Search:").pack(side="left", padx=(20,4))
+        search_var = tk.StringVar()
+        search_var.trace_add("write", lambda *args, n=name: self._filter_tree(n))
+        self.search_vars[name] = search_var
+        ttk.Entry(search_frm, textvariable=search_var, width=20).pack(side="left")
         # Sorting dropdown
         ttk.Label(frm_top, text="Sort by:").pack(side="left", padx=(20, 4))
         sort_choice = ttk.Combobox(frm_top, values=["Name", "Size", "Duration", "Ext"], width=10, state="readonly")
@@ -120,6 +137,14 @@ class MediaScannerApp:
         ttk.Label(left_pane, text="Left").pack(anchor="w")
         lfrm = ttk.Frame(left_pane)
         lfrm.pack(fill="x")
+        
+        # Add "Show Matches First" checkbox
+        self.show_matches_first = tk.BooleanVar(value=False)
+        cb = ttk.Checkbutton(lfrm, text="Show Matches First", 
+                            variable=self.show_matches_first,
+                            command=self._refresh_compare_display)
+        cb.pack(side="right", padx=4)
+        
         ttk.Label(lfrm, text="Sort by:").pack(side="left")
         self.left_sort_choice = ttk.Combobox(lfrm, values=["Name","Size","Ext"], width=10, state="readonly")
         self.left_sort_choice.set("Name")
@@ -246,6 +271,8 @@ class MediaScannerApp:
 
         self.status_var.set(f"Scanning {folder}...")
         self.progress["value"] = 0
+        self.scan_button.configure(state="disabled")
+        self.cancel_button.configure(state="normal")
         self.master.update_idletasks()
 
         def do_scan():
@@ -258,10 +285,19 @@ class MediaScannerApp:
             
             # Use after to ensure display happens in main thread
             self.master.after(0, lambda: self.display_results(category, filtered))
-            self.master.after(0, lambda: self.status_var.set(f"Scan complete ({len(filtered)} {category} items found)"))
+            self.master.after(0, lambda: self.status_var.set(f"Scan {'cancelled' if not self.scanner.scanning else 'complete'} ({len(filtered)} {category} items found)"))
             self.master.after(0, lambda: setattr(self.progress, "value", 100))
+            self.master.after(0, lambda: self.scan_button.configure(state="normal"))
+            self.master.after(0, lambda: self.cancel_button.configure(state="disabled"))
 
         threading.Thread(target=do_scan, daemon=True).start()
+        
+    def cancel_scan(self):
+        """Cancel the current scan operation."""
+        if self.scanner:
+            self.scanner.stop_scan()
+            self.status_var.set("Cancelling scan...")
+            self.cancel_button.configure(state="disabled")
 
 
     def on_scan_progress(self, percent, current_file):
@@ -286,12 +322,15 @@ class MediaScannerApp:
         if not tree:
             return
 
+        # Store items for filtering
+        tree.all_items = sorted(items, key=lambda x: x["Name"].lower())
+
         # Clear previous contents
         for row in tree.get_children():
             tree.delete(row)
 
         # Insert new rows
-        for item in items:
+        for item in tree.all_items:
             tree.insert(
                 "",
                 "end",
@@ -303,6 +342,35 @@ class MediaScannerApp:
                     item["Ext"],
                 ),
             )
+            
+    def _filter_tree(self, category):
+        """Filter tree based on search text"""
+        tree = self.trees.get(category)
+        if not tree or not hasattr(tree, "all_items"):
+            return
+            
+        search_text = self.search_vars[category].get().lower()
+        
+        # Clear current display
+        for row in tree.get_children():
+            tree.delete(row)
+            
+        # Show filtered items
+        for item in tree.all_items:
+            if (search_text in item["Name"].lower() or 
+                search_text in item["Path"].lower() or 
+                search_text in item["Ext"].lower()):
+                tree.insert(
+                    "",
+                    "end",
+                    values=(
+                        item["Name"],
+                        item["Path"],
+                        item["Size_Display"],
+                        item["Duration_Display"],
+                        item["Ext"],
+                    ),
+                )
 
 
 
@@ -342,13 +410,36 @@ class MediaScannerApp:
         if not path: return
         try:
             if fmt=="json":
-                with open(path,"w",encoding="utf-8") as f:
-                    json.dump(items, f, ensure_ascii=False, indent=2)
+                # Ensure consistent key names in exported JSON
+                formatted_items = []
+                for it in items:
+                    formatted_items.append({
+                        "name": it.get("Name", ""),
+                        "path": it.get("Path", ""),
+                            "size_display": it.get("Size_Display", ""),  # Always use display size
+                            "duration_display": it.get("Duration_Display", "N/A"),
+                        "ext": it.get("Ext", "").lower(),
+                        "category": it.get("Category", "Other")
+                    })
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(formatted_items, f, ensure_ascii=False, indent=2)
             else:
-                with open(path,"w",encoding="utf-8") as f:
-                    f.write("name\tpath\tsize\tduration\text\n")
+                with open(path, "w", encoding="utf-8") as f:
+                    # Write header
+                    f.write("name\tpath\tsize_display\tduration_display\text\tcategory\n")
+                    # Write data with all available fields
                     for it in items:
-                        f.write(f"{it['name']}\t{it['path']}\t{it['size_display']}\t{it.get('duration_display','N/A')}\t{it['ext']}\n")
+                        row = [
+                            it.get("Name", ""),
+                            it.get("Path", ""),
+                            it.get("Size_Display", ""),
+                            it.get("Duration_Display", "N/A"),
+                            it.get("Ext", "").lower(),
+                            it.get("Category", "Other")
+                        ]
+                        # Escape any tabs in the data
+                        row = [str(field).replace("\t", " ") for field in row]
+                        f.write("\t".join(row) + "\n")
             messagebox.showinfo("Exported", f"Export saved to {path}")
         except Exception as e:
             messagebox.showerror("Error", str(e))
@@ -442,37 +533,70 @@ class MediaScannerApp:
             def get_name(it):
                 return (it.get("Name") or it.get("name") or "")
             def get_size(it):
-                return it.get("Size") if it.get("Size") is not None else it.get("size")
+                # Try numeric size first
+                if it.get("Size") is not None:
+                    return it.get("Size")
+                if it.get("size") is not None:
+                    return it.get("size")
+                # If no numeric size, use size_display or Size_Display
+                return it.get("size_display") or it.get("Size_Display") or "N/A"
             def get_size_display(it):
-                return it.get("Size_Display") or it.get("size_display") or str(get_size(it) or "")
+                return it.get("Size_Display") or it.get("size_display") or str(get_size(it))
             def get_ext(it):
                 return (it.get("Ext") or it.get("ext") or "").lower()
 
-            # build index of right items for matching
-            right_set = set((get_name(it).lower(), get_size(it), get_ext(it)) for it in right_items)
-            left_set = set((get_name(it).lower(), get_size(it), get_ext(it)) for it in left_items)
+            # build index of right items for matching - use only name and ext for text files
+            def get_compare_key(it):
+                name = get_name(it).lower()
+                ext = get_ext(it)
+                size = get_size(it)
+                # If size is a string (from text file), just use name and ext
+                if isinstance(size, str):
+                    return (name, ext)
+                return (name, size, ext)
+                
+            right_set = set(get_compare_key(it) for it in right_items)
+            left_set = set(get_compare_key(it) for it in left_items)
 
-            # populate left tree
-            for iid in self.compare_tree_left.get_children():
-                self.compare_tree_left.delete(iid)
+            # Prepare items for sorted display
+            left_prepared = []
             for it in left_items:
                 name = get_name(it)
                 size_disp = get_size_display(it)
                 ext = get_ext(it)
-                tag = ()
                 key = (name.lower(), get_size(it), ext)
-                tags = ("match",) if key in right_set else ()
-                self.compare_tree_left.insert("", "end", values=(name, size_disp, ext), tags=tags)
+                is_match = key in right_set
+                left_prepared.append((it, name, size_disp, ext, key, is_match))
 
-            # populate right tree
-            for iid in self.compare_tree_right.get_children():
-                self.compare_tree_right.delete(iid)
+            right_prepared = []
             for it in right_items:
                 name = get_name(it)
                 size_disp = get_size_display(it)
                 ext = get_ext(it)
                 key = (name.lower(), get_size(it), ext)
-                tags = ("match",) if key in left_set else ()
+                is_match = key in left_set
+                right_prepared.append((it, name, size_disp, ext, key, is_match))
+
+            # Sort function that handles both alphabetical and matches-first sorting
+            def sort_items(items):
+                return sorted(items, key=lambda x: (0 if x[5] and self.show_matches_first.get() else 1, x[1].lower()))
+
+            # Sort both lists
+            left_prepared = sort_items(left_prepared)
+            right_prepared = sort_items(right_prepared)
+
+            # populate left tree
+            for iid in self.compare_tree_left.get_children():
+                self.compare_tree_left.delete(iid)
+            for _, name, size_disp, ext, key, is_match in left_prepared:
+                tags = ("match",) if is_match else ()
+                self.compare_tree_left.insert("", "end", values=(name, size_disp, ext), tags=tags)
+
+            # populate right tree
+            for iid in self.compare_tree_right.get_children():
+                self.compare_tree_right.delete(iid)
+            for _, name, size_disp, ext, key, is_match in right_prepared:
+                tags = ("match",) if is_match else ()
                 self.compare_tree_right.insert("", "end", values=(name, size_disp, ext), tags=tags)
 
             # populate summary tree
@@ -520,6 +644,16 @@ class MediaScannerApp:
         # repopulate using populate_compare with current data
         data = {"left": self.last_compare_left, "right": self.last_compare_right, "results": self.last_compare}
         self.populate_compare(data)
+
+    def _refresh_compare_display(self):
+        """Refresh the compare display with current sorting options."""
+        if self.last_compare_left and self.last_compare_right:
+            data = {
+                "left": self.last_compare_left,
+                "right": self.last_compare_right,
+                "results": self.last_compare
+            }
+            self.populate_compare(data)
 
     def export_compare(self):
         if not self.last_compare:

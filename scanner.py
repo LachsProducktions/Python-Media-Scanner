@@ -93,18 +93,22 @@ def sha256_of_file(path, block_size=65536):
 class Scanner:
     def __init__(self, include_hash=False):
         self.include_hash = include_hash
+        self.scanning = False
 
     def scan_folder(self, root_path, update_callback=None):
         """
         Scans folder recursively and returns list of item dicts.
         Calls update_callback(progress, current_file) with progress from 0–100.
         """
+        self.scanning = True
         items = []
         root = Path(root_path)
 
         # Collect all files first for total count
         all_files = []
         for dirpath, _, files in os.walk(root):
+            if not self.scanning:
+                return []
             for fname in files:
                 all_files.append(Path(dirpath) / fname)
 
@@ -113,6 +117,9 @@ class Scanner:
             return []
 
         for count, full in enumerate(all_files, start=1):
+            if not self.scanning:
+                return items
+                
             try:
                 ext = full.suffix.lower()
                 size = full.stat().st_size
@@ -154,6 +161,10 @@ class Scanner:
 
         return items
     
+    def stop_scan(self):
+        """Stop the current scan operation."""
+        self.scanning = False
+        
     def sort_items(self, items, by="Name"):
         """
         Sorts scanned items by name, size, duration, or extension.
