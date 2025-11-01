@@ -17,15 +17,13 @@ Make sure you have Python 3.10+ installed.
 Install requirements (if you haven't already):
 ```
 pip install tkinterdnd2 pillow matplotlib
-
 ```
 Optional (but necessary for duration detection):
 - FFmpeg
 - pymediainfo
 - mutagen
 ```
-pip install pymediainfo mutagen
-
+pip install pymediainfo mutage
 ```
 ### Installing/Executing
 
@@ -33,6 +31,5 @@ Just download the 4 files and open a terminal in the folder where the files are 
 Then run:
 ```
 python main.py
-
 ```
 The program itself is pretty self-explanitory. Just press on 'Scan' and choose a folder.
